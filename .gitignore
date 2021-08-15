@@ -1,0 +1,7 @@
+logs
+.idea/
+.DS_Store
+vendor
+nohup.out
+go.sum
+local*
