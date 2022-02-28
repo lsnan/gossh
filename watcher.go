@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"io"
 	"strings"
-	"sync"
 )
 
 type Watcher struct {
