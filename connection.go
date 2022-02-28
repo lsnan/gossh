@@ -102,8 +102,8 @@ func (conn *Connection) Run(cmd string, opts ...RunOptions) (stdoutByte []byte, 
 	}
 	session.Stderr = stderr
 
-	var wt sync.WaitGroup
-	wt.Add(1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	
 	go func() {
 		defer wg.Done()
@@ -111,7 +111,7 @@ func (conn *Connection) Run(cmd string, opts ...RunOptions) (stdoutByte []byte, 
 	}()
 
 	err = session.Run(cmd)
-	wt.Wait()
+	wg.Wait()
 	if err != nil {
 		return stdoutByte, stderr.Bytes(), err
 	}
