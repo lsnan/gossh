@@ -21,11 +21,11 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type SessionConfig struct {
+type RunOptions struct {
 	Watchers []Watcher
 }
 
-type SudoConfig struct {
+type SudoOptions struct {
 	SudoUser     string
 	SudoPassword string
 	SudoPattern  string
@@ -68,14 +68,14 @@ func NewConnection(host, user, password string, port int, timeout int64) (*Conne
 	return conn, nil
 }
 
-func (conn *Connection) Run(cmd string, scs ...SessionConfig) (stdoutByte []byte, stderrByte []byte, err error) {
-	var sc SessionConfig
+func (conn *Connection) Run(cmd string, opts ...RunOptions) (stdoutByte []byte, stderrByte []byte, err error) {
+	var opt RunOptions
 	var stdin io.WriteCloser
 	var stdout io.Reader
 	var stderr = new(bytes.Buffer)
 
-	if len(scs) >= 1 {
-		sc = scs[0]
+	if len(opts) >= 1 {
+		opt = opts[0]
 	}
 
 	cmd = fmt.Sprintf("PATH=$PATH:/usr/bin:/usr/sbin %s", cmd)
@@ -104,7 +104,11 @@ func (conn *Connection) Run(cmd string, scs ...SessionConfig) (stdoutByte []byte
 
 	var wt sync.WaitGroup
 	wt.Add(1)
-	go watchers(stdin, stdout, &stdoutByte, sc.Watchers, &wt)
+	
+	go func() {
+		defer wg.Done()
+		watchers(stdin, stdout, &stdoutByte, opt.Watchers)
+	}()
 
 	err = session.Run(cmd)
 	wt.Wait()
@@ -114,29 +118,29 @@ func (conn *Connection) Run(cmd string, scs ...SessionConfig) (stdoutByte []byte
 	return stdoutByte, stderr.Bytes(), nil
 }
 
-func (conn *Connection) Sudo(cmd string, sudoConfigs ...SudoConfig) (stdoutByte []byte, stderrByte []byte, err error) {
-	var sc SudoConfig
-	if len(sudoConfigs) >= 1 {
-		sc = sudoConfigs[0]
+func (conn *Connection) Sudo(cmd string, opts ...SudoOptions) (stdoutByte []byte, stderrByte []byte, err error) {
+	var opt SudoOptions
+	if len(opts) >= 1 {
+		opt = opts[0]
 	}
 
-	if sc.SudoUser == "" {
-		sc.SudoUser = "root"
+	if opt.SudoUser == "" {
+		opt.SudoUser = "root"
 	}
 
-	if sc.SudoPassword == "" {
-		sc.SudoPassword = conn.Password
+	if opt.SudoPassword == "" {
+		opt.SudoPassword = conn.Password
 	}
 
-	if sc.SudoPattern == "" {
-		sc.SudoPattern = "[sudo] password: "
+	if opt.SudoPattern == "" {
+		opt.SudoPattern = "[sudo] password: "
 	}
 
-	cmd = fmt.Sprintf("sudo -S -p '%s' -H -u %s /bin/bash -l -c \"cd; %s\"", sc.SudoPattern, sc.SudoUser, cmd)
-	watcher := Watcher{Pattern: sc.SudoPattern, Response: sc.SudoPassword}
-	sc.Watchers = append(sc.Watchers, watcher)
+	cmd = fmt.Sprintf("sudo -S -p '%s' -H -u %s /bin/bash -l -c \"cd; %s\"", opt.SudoPattern, opt.SudoUser, cmd)
+	watcher := Watcher{Pattern: opt.SudoPattern, Response: opt.SudoPassword}
+	opt.Watchers = append(opt.Watchers, watcher)
 
-	return conn.Run(cmd, SessionConfig{Watchers: sc.Watchers})
+	return conn.Run(cmd, RunOptions{Watchers: opt.Watchers})
 }
 
 func (conn *Connection) Scp(source, target string) error {
