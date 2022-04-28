@@ -8,14 +8,16 @@ package gossh
 import (
 	"bytes"
 	"fmt"
-	"github.com/lsnan/gossh/utils"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/lsnan/gossh/utils"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -37,6 +39,7 @@ type Connection struct {
 	Port         int
 	User         string
 	Password     string
+	KeyFile      string
 	auth         []ssh.AuthMethod
 	clientConfig *ssh.ClientConfig
 	sshClient    *ssh.Client
@@ -48,6 +51,39 @@ func NewConnection(host, user, password string, port int, timeout int64) (*Conne
 	conn := &Connection{Host: host, Port: port, User: user, Password: password}
 	conn.auth = make([]ssh.AuthMethod, 0)
 	conn.auth = append(conn.auth, ssh.Password(password))
+	conn.clientConfig = &ssh.ClientConfig{
+		User:            user,
+		Auth:            conn.auth,
+		HostKeyCallback: ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error { return nil }),
+		Timeout:         time.Duration(timeout) * time.Second,
+	}
+
+	address := fmt.Sprintf("%s:%d", conn.Host, conn.Port)
+
+	if conn.sshClient, err = ssh.Dial("tcp", address, conn.clientConfig); err != nil {
+		return nil, err
+	}
+
+	if conn.Client, err = sftp.NewClient(conn.sshClient); err != nil {
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+func NewConnectionUseKeyFile(host, user, keyfile string, port int, timeout int64) (*Connection, error) {
+	conn := &Connection{Host: host, Port: port, User: user, KeyFile: keyfile}
+	key, err := ioutil.ReadFile(keyfile)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	conn.auth = make([]ssh.AuthMethod, 0)
+	conn.auth = append(conn.auth, ssh.PublicKeys(signer))
 	conn.clientConfig = &ssh.ClientConfig{
 		User:            user,
 		Auth:            conn.auth,
@@ -104,7 +140,7 @@ func (conn *Connection) Run(cmd string, opts ...RunOptions) (stdoutByte []byte, 
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	
+
 	go func() {
 		defer wg.Done()
 		watchers(stdin, stdout, &stdoutByte, opt.Watchers)
